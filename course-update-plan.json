@@ -1,0 +1,153 @@
+{
+  "courses": [
+    {
+      "id": 3403,
+      "title": "Entity Framework Core: Data Access with .NET",
+      "image": "course-images/entity-framework-core.png",
+      "hours": 21,
+      "outcomes": [
+        "Configure EF Core providers, DbContext, dependency injection, and persistence boundaries.",
+        "Model relational data with keys, relationships, owned types, conversions, and indexes.",
+        "Create, review, script, and deploy database migrations safely.",
+        "Write efficient LINQ queries and diagnose tracking, N+1, and generated SQL problems.",
+        "Implement transactions, optimistic concurrency, retries, and idempotent data workflows.",
+        "Test, observe, cache, profile, and optimize production data access code."
+      ],
+      "lessons": [
+        {
+          "topic": "EF Core Architecture and DbContext",
+          "title": "Configure EF Core and a Clean DbContext Boundary",
+          "html": "<h2>How EF Core fits into a .NET application</h2><p>Entity Framework Core maps .NET objects to relational tables. A <code>DbContext</code> represents one unit of work: it tracks entity changes, translates LINQ into SQL, and commits changes with <code>SaveChangesAsync</code>. In web applications, register the context as scoped so each request receives its own instance.</p><pre><code>builder.Services.AddDbContext&lt;AppDbContext&gt;(options =&gt;\n    options.UseSqlServer(builder.Configuration.GetConnectionString(\"Default\")));\n\npublic sealed class AppDbContext(DbContextOptions&lt;AppDbContext&gt; options)\n    : DbContext(options)\n{\n    public DbSet&lt;Product&gt; Products =&gt; Set&lt;Product&gt;();\n}</code></pre><p>Keep connection strings in configuration, accept cancellation tokens, and avoid sharing a context between threads. Treat entities as persistence models only when that keeps the domain clear; larger systems often isolate EF Core inside an infrastructure project.</p><h3>Exercise</h3><p>Create a new web API, install the EF Core provider for your database, register <code>AppDbContext</code>, and add a <code>Product</code> entity. Resolve the context from a scoped service and insert one product.</p><h3>Acceptance checks</h3><ul><li>The application starts without service-lifetime errors.</li><li>The context is scoped and the connection string is not hard-coded.</li><li><code>SaveChangesAsync</code> persists a row.</li></ul>"
+        },
+        {
+          "topic": "Advanced Modeling and Relationships",
+          "title": "Model Relationships, Value Objects, and Indexes",
+          "html": "<h2>Express the relational model explicitly</h2><p>Conventions are useful, but production models benefit from explicit constraints. Configure required properties, lengths, unique indexes, delete behavior, and relationship cardinality in <code>IEntityTypeConfiguration&lt;T&gt;</code> classes.</p><pre><code>public sealed class OrderConfig : IEntityTypeConfiguration&lt;Order&gt;\n{\n    public void Configure(EntityTypeBuilder&lt;Order&gt; b)\n    {\n        b.HasKey(x =&gt; x.Id);\n        b.HasIndex(x =&gt; x.Number).IsUnique();\n        b.OwnsOne(x =&gt; x.ShippingAddress);\n        b.HasMany(x =&gt; x.Items).WithOne().HasForeignKey(x =&gt; x.OrderId);\n    }\n}</code></pre><p>Owned types are helpful for value objects without a separate identity. Value converters handle small type transformations, while explicit join entities are best when a many-to-many relationship has its own data.</p><h3>Exercise</h3><p>Model customers, orders, order items, and products. Add a unique order number, an owned shipping address, a one-to-many order relationship, and an index that supports product lookup.</p><h3>Acceptance checks</h3><ul><li>The model creates correct foreign keys.</li><li>Deleting a product cannot silently delete historical orders.</li><li>The unique and lookup indexes appear in the migration.</li></ul>"
+        },
+        {
+          "topic": "Migrations and Production Database Evolution",
+          "title": "Create and Deploy Safe Database Migrations",
+          "html": "<h2>Treat migrations as reviewed production code</h2><p>A migration is an ordered description of schema changes. Generate it after changing the model, inspect both <code>Up</code> and <code>Down</code>, and review the SQL before deployment. Renames, non-null columns, and destructive changes require special care.</p><pre><code>dotnet ef migrations add AddProductSku\ndotnet ef migrations script --idempotent --output deploy.sql</code></pre><p>For a zero-downtime change, use expand-and-contract: add the new structure, deploy code that supports both versions, backfill data, then remove the old structure in a later release. Apply production migrations through a controlled deployment step rather than at application startup.</p><h3>Exercise</h3><p>Add a required SKU to products without losing existing data. First add it as nullable, backfill unique values, then enforce the constraint in a second migration. Generate an idempotent SQL script.</p><h3>Acceptance checks</h3><ul><li>The script can run against databases at different migration levels.</li><li>No existing row violates the new constraint.</li><li>The migration contains no unintended table drops.</li></ul>"
+        },
+        {
+          "topic": "Advanced LINQ, Tracking and Query Performance",
+          "title": "Write Fast LINQ Queries and Diagnose Generated SQL",
+          "html": "<h2>Shape only the data the caller needs</h2><p>Start read-only queries with <code>AsNoTracking</code> and project to a DTO before materialization. Projection reduces columns, avoids unnecessary change tracking, and makes query intent visible.</p><pre><code>var page = await db.Products\n    .AsNoTracking()\n    .Where(p =&gt; p.IsActive &amp;&amp; p.Price &gt;= minimum)\n    .OrderBy(p =&gt; p.Name)\n    .Select(p =&gt; new ProductListItem(p.Id, p.Name, p.Price))\n    .Skip(offset).Take(pageSize)\n    .ToListAsync(cancellationToken);</code></pre><p>Inspect SQL with logging or <code>ToQueryString</code>. Watch for client evaluation, unbounded results, N+1 queries, Cartesian expansion from multiple includes, and filters that prevent index use. Split queries can help large include graphs, but projection is usually clearer.</p><h3>Exercise</h3><p>Build a paginated product search with category, price, and text filters. Compare tracked entity loading with DTO projection and record the SQL and timings.</p><h3>Acceptance checks</h3><ul><li>The query is paginated and deterministic.</li><li>Only required columns are selected.</li><li>No query executes inside a result-processing loop.</li></ul>"
+        },
+        {
+          "topic": "Transactions, Concurrency and Resiliency",
+          "title": "Handle Transactions, Concurrency, and Retries",
+          "html": "<h2>Protect multi-step workflows</h2><p>A single <code>SaveChanges</code> call is transactional. Use an explicit transaction when several saves or database operations must succeed together. Add a row-version concurrency token so conflicting edits are detected instead of silently overwritten.</p><pre><code>public sealed class Product\n{\n    public int Id { get; set; }\n    public decimal Price { get; set; }\n    [Timestamp] public byte[] Version { get; set; } = [];\n}</code></pre><p>Catch <code>DbUpdateConcurrencyException</code>, reload database values, and apply a documented resolution policy. Transient retry strategies help with short database failures, but commands must remain idempotent. Use a client request key or outbox record when an operation may be repeated.</p><h3>Exercise</h3><p>Implement an inventory adjustment that updates stock and records an audit row in one transaction. Simulate two users editing the same product and return a conflict response to the loser.</p><h3>Acceptance checks</h3><ul><li>Stock and audit data commit together.</li><li>A stale update produces a controlled conflict.</li><li>Retrying the same command does not double-apply stock.</li></ul>"
+        },
+        {
+          "topic": "Testing and Clean Data Access Architecture",
+          "title": "Test EF Core with Realistic Persistence Boundaries",
+          "html": "<h2>Choose tests that catch database behavior</h2><p>Unit tests are useful for pure domain logic, but EF queries, constraints, and transactions need a relational database. SQLite in-memory can provide fast relational behavior; containerized production engines provide the highest fidelity for integration tests.</p><pre><code>await using var connection = new SqliteConnection(\"Data Source=:memory:\");\nawait connection.OpenAsync();\nvar options = new DbContextOptionsBuilder&lt;AppDbContext&gt;()\n    .UseSqlite(connection).Options;</code></pre><p>Keep query and command logic behind clear application services. Avoid generic repositories that merely duplicate <code>DbSet</code>. Add abstractions when they express business operations or isolate an external boundary.</p><h3>Exercise</h3><p>Write integration tests for a unique SKU constraint, a product search projection, and a transaction rollback. Seed only the data each test needs.</p><h3>Acceptance checks</h3><ul><li>Tests use a relational provider.</li><li>Each test is independent and deterministic.</li><li>The test suite detects a broken foreign key or unique constraint.</li></ul>"
+        },
+        {
+          "topic": "Caching, Observability and Capstone Optimization",
+          "title": "Optimize and Observe a Production Data Service",
+          "html": "<h2>Measure before optimizing</h2><p>Record request latency, database command duration, error rate, and cache hit rate. Enable structured EF Core logging without exposing parameter values in production. Use tracing to connect an HTTP request to its database calls.</p><p>Cache stable, frequently read data with explicit expiration and invalidation rules. Avoid caching large tracked graphs. For bulk work, batch changes and use provider-supported set-based operations where appropriate.</p><pre><code>var affected = await db.Products\n    .Where(p =&gt; p.Discontinued)\n    .ExecuteUpdateAsync(s =&gt; s.SetProperty(p =&gt; p.IsActive, false));</code></pre><h3>Capstone</h3><p>Build and optimize an inventory data service. Add paginated search, concurrency-safe stock adjustments, an outbox table, caching for categories, integration tests, logs, metrics, and a short performance report.</p><h3>Acceptance checks</h3><ul><li>Every endpoint has a measured latency baseline.</li><li>Slow queries can be identified from logs or traces.</li><li>The capstone survives duplicate commands and concurrent updates.</li></ul>"
+        }
+      ]
+    },
+    {
+      "id": 3401,
+      "title": "ASP.NET Core Web Development",
+      "image": "course-images/aspnet-core.png",
+      "hours": 24,
+      "outcomes": [
+        "Create and configure ASP.NET Core applications using the modern hosting model.",
+        "Build maintainable MVC, Razor Pages, minimal API, and controller-based features.",
+        "Use routing, model binding, validation, dependency injection, configuration, and middleware.",
+        "Persist application data with Entity Framework Core and relational databases.",
+        "Implement authentication, authorization, secure configuration, and common web protections.",
+        "Test, profile, containerize, and deploy a production-ready ASP.NET Core application."
+      ],
+      "lessons": [
+        {
+          "topic": "C# Foundations and the Expense Tracker Project",
+          "title": "Course Roadmap: Build an Expense Tracker Web App",
+          "html": "<h2>Your course project</h2><p>You will build an expense tracker that grows from a new ASP.NET Core project into a secure, tested, deployable web application. The finished system will capture expenses, group them by category, show monthly totals, and expose a small API.</p><p>Create the solution with separate web, application, and test projects. Keep business calculations independent from HTTP so they remain easy to test.</p><pre><code>dotnet new sln -n ExpenseTracker\ndotnet new webapp -n ExpenseTracker.Web\ndotnet new xunit -n ExpenseTracker.Tests\ndotnet sln add ExpenseTracker.Web ExpenseTracker.Tests</code></pre><h3>Exercise</h3><p>Create the solution, run the web project, add a home page that explains the project, and commit a short feature checklist.</p><h3>Acceptance checks</h3><ul><li>The solution builds from the command line.</li><li>The site runs over HTTPS in development.</li><li>The project checklist covers data, security, tests, and deployment.</li></ul>"
+        },
+        {
+          "topic": "ASP.NET Core Project Setup and Fundamentals",
+          "title": "Understand the Hosting Model and Project Structure",
+          "html": "<h2>From startup to first response</h2><p><code>WebApplication.CreateBuilder</code> prepares configuration, logging, and dependency injection. After registering services, build the app, compose the middleware pipeline, map endpoints, and run the host.</p><pre><code>var builder = WebApplication.CreateBuilder(args);\nbuilder.Services.AddRazorPages();\nvar app = builder.Build();\napp.UseHttpsRedirection();\napp.UseStaticFiles();\napp.MapRazorPages();\napp.Run();</code></pre><p>Configuration is layered from JSON, environment-specific files, environment variables, user secrets, and command-line arguments. Never commit production secrets.</p><h3>Exercise</h3><p>Add development and production settings for the application name and support email. Display them through a strongly typed options class.</p><h3>Acceptance checks</h3><ul><li>Development settings override defaults.</li><li>Options are injected through DI.</li><li>No credential is stored in source control.</li></ul>"
+        },
+        {
+          "topic": "Routing, MVC and Razor Pages",
+          "title": "Build Routes, Forms, and Validated UI",
+          "html": "<h2>Turn requests into features</h2><p>Routing selects an endpoint; model binding creates .NET values from route, query, form, and body data; validation checks those values before your handler runs. Razor Pages suits page-focused workflows, while MVC controllers are useful when actions and views form a clear unit.</p><pre><code>public sealed class ExpenseInput\n{\n    [Required, StringLength(120)] public string Description { get; set; } = \"\";\n    [Range(0.01, 100000)] public decimal Amount { get; set; }\n}</code></pre><p>Always redisplay validation errors and use anti-forgery protection for browser forms. Keep view models separate from persistence entities.</p><h3>Exercise</h3><p>Create list, details, create, and edit pages for expenses. Add server-side validation and a shared layout with navigation.</p><h3>Acceptance checks</h3><ul><li>Invalid forms show useful messages.</li><li>Successful posts redirect to prevent duplicate submission.</li><li>URLs remain stable and readable.</li></ul>"
+        },
+        {
+          "topic": "Dependency Injection, Configuration and Middleware",
+          "title": "Compose Services and the Middleware Pipeline",
+          "html": "<h2>Build around explicit dependencies</h2><p>Register services by lifetime: singleton for stateless shared services, scoped for request-level work such as <code>DbContext</code>, and transient for lightweight independent operations. Constructor injection makes dependencies visible and testable.</p><pre><code>builder.Services.AddScoped&lt;IExpenseService, ExpenseService&gt;();\napp.Use(async (context, next) =&gt;\n{\n    var started = Stopwatch.GetTimestamp();\n    await next();\n    app.Logger.LogInformation(\"{Path} completed in {Elapsed} ms\",\n        context.Request.Path, Stopwatch.GetElapsedTime(started).TotalMilliseconds);\n});</code></pre><p>Middleware order matters: exception handling should be early; authentication must run before authorization; endpoint mappings come after shared middleware.</p><h3>Exercise</h3><p>Create an expense summary service and custom request-timing middleware. Configure a monthly budget through options.</p><h3>Acceptance checks</h3><ul><li>No scoped service is captured by a singleton.</li><li>Every request writes one structured timing log.</li><li>The budget changes through configuration without recompiling.</li></ul>"
+        },
+        {
+          "topic": "Data Access with Entity Framework Core",
+          "title": "Persist Expenses with EF Core",
+          "html": "<h2>Map and query application data</h2><p>Define <code>Expense</code> and <code>Category</code> entities, register a scoped <code>DbContext</code>, then create a migration. For read screens, use <code>AsNoTracking</code> and project into view models.</p><pre><code>var items = await db.Expenses.AsNoTracking()\n    .Where(x =&gt; x.SpentOn &gt;= from &amp;&amp; x.SpentOn &lt; to)\n    .OrderByDescending(x =&gt; x.SpentOn)\n    .Select(x =&gt; new ExpenseRow(x.Id, x.Description, x.Amount, x.Category.Name))\n    .ToListAsync(cancellationToken);</code></pre><p>Validate ownership and existence before updates. Use asynchronous database APIs and pass cancellation tokens from HTTP requests.</p><h3>Exercise</h3><p>Implement CRUD for expenses, categories, and a monthly total query. Seed three categories for development.</p><h3>Acceptance checks</h3><ul><li>Migrations create all constraints and indexes.</li><li>Lists use projection and no tracking.</li><li>Deleting a category with expenses is handled safely.</li></ul>"
+        },
+        {
+          "topic": "Authentication, Authorization and Application Security",
+          "title": "Secure Users, Data, and Sensitive Operations",
+          "html": "<h2>Apply layered web security</h2><p>Authentication establishes identity; authorization decides what that identity may do. Use ASP.NET Core Identity or a trusted identity provider, then protect features with roles or policies. Every data query must enforce ownership when records are user-specific.</p><pre><code>builder.Services.AddAuthorization(options =&gt;\n    options.AddPolicy(\"CanExport\", p =&gt; p.RequireClaim(\"permission\", \"expenses.export\")));</code></pre><p>Keep secrets outside source control, require HTTPS, validate inputs, encode output, use anti-forgery protection, and avoid exposing internal exception details. Rate-limit sensitive endpoints.</p><h3>Exercise</h3><p>Add sign-in, restrict expense pages to authenticated users, and ensure users can access only their own expenses. Protect CSV export with a policy.</p><h3>Acceptance checks</h3><ul><li>Anonymous requests are challenged.</li><li>Cross-user record access returns not found or forbidden.</li><li>Secrets are loaded from a secure configuration source.</li></ul>"
+        },
+        {
+          "topic": "Testing, Performance and Production Deployment",
+          "title": "Test, Profile, Containerize, and Deploy",
+          "html": "<h2>Build confidence before release</h2><p>Use unit tests for calculations and integration tests for routing, authentication, serialization, database behavior, and error handling. <code>WebApplicationFactory</code> hosts the application in memory while still exercising the HTTP pipeline.</p><pre><code>public sealed class ExpensesTests(WebApplicationFactory&lt;Program&gt; factory)\n{\n    [Fact] public async Task Anonymous_user_is_redirected()\n    {\n        var client = factory.CreateClient();\n        var response = await client.GetAsync(\"/Expenses\");\n        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);\n    }\n}</code></pre><p>Profile slow paths, add caching only with a clear invalidation rule, expose health checks, and containerize with a multi-stage Dockerfile. Configure production logging, HTTPS termination, secrets, migrations, and rollback.</p><h3>Exercise</h3><p>Add unit and integration tests, a health endpoint, a container build, and a deployment checklist for the expense tracker.</p><h3>Acceptance checks</h3><ul><li>Tests run in CI.</li><li>The container runs as a non-root user.</li><li>The deployment has health checks and a rollback plan.</li></ul>"
+        },
+        {
+          "topic": "Dependency Injection, Configuration and Middleware",
+          "title": "Build APIs and Real-Time Updates with SignalR",
+          "html": "<h2>Expose the application beyond HTML pages</h2><p>Minimal APIs and controllers can share the same application services as Razor Pages. Return consistent problem details, validate request DTOs, use correct status codes, and version contracts deliberately.</p><pre><code>app.MapGet(\"/api/expenses/{id:int}\", async (int id, AppDbContext db) =&gt;\n    await db.Expenses.FindAsync(id) is { } expense\n        ? Results.Ok(expense)\n        : Results.NotFound());</code></pre><p>SignalR adds server-to-client updates for dashboards. Place clients into user-specific groups and authorize the hub. Do not send persistence entities directly; publish small event contracts.</p><h3>Exercise</h3><p>Add a JSON expense API and a SignalR notification when a new expense changes the monthly total. Document the endpoints with OpenAPI.</p><h3>Acceptance checks</h3><ul><li>Invalid requests return problem details.</li><li>OpenAPI describes request and response contracts.</li><li>Only the correct signed-in user receives the real-time update.</li></ul>"
+        }
+      ]
+    },
+    {
+      "id": 3420,
+      "title": ".NET Beginner: C# and Application Fundamentals",
+      "image": "course-images/dotnet-beginner.png",
+      "hours": 12,
+      "outcomes": [
+        "Install the .NET SDK and build, run, and debug C# applications.",
+        "Use variables, decisions, loops, methods, classes, and records.",
+        "Work confidently with collections and LINQ queries.",
+        "Read and write files and serialize data as JSON.",
+        "Handle validation and exceptions and write automated tests.",
+        "Complete a personal expense tracker capstone project."
+      ]
+    },
+    {
+      "id": 3430,
+      "title": ".NET Intermediate: ASP.NET Core Web APIs and EF Core",
+      "image": "course-images/dotnet-intermediate.png",
+      "hours": 16,
+      "outcomes": [
+        "Explain the ASP.NET Core request pipeline and dependency injection.",
+        "Design REST endpoints with validation and consistent error responses.",
+        "Use EF Core entities, migrations, relationships, and transactions.",
+        "Write efficient asynchronous queries and handle concurrency.",
+        "Apply authentication, authorization, configuration, and structured logging.",
+        "Test and deliver a complete inventory Web API."
+      ]
+    },
+    {
+      "id": 3440,
+      "title": ".NET Advanced: Architecture, Performance, and Cloud-Native Services",
+      "image": "course-images/dotnet-advanced.png",
+      "hours": 20,
+      "outcomes": [
+        "Structure services around domain boundaries and dependency rules.",
+        "Model invariants and implement command and query workflows.",
+        "Build reliable messaging with idempotency, outbox, and resilience patterns.",
+        "Improve throughput and latency with caching, concurrency control, and profiling.",
+        "Instrument services with logs, metrics, traces, and health checks.",
+        "Deliver a secure cloud-native capstone service with production readiness gates."
+      ]
+    }
+  ]
+}
